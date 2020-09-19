@@ -56,11 +56,11 @@ namespace SkImageResizer
             await Task.Yield();
 
             var allFiles = FindImages(sourcePath);
-            foreach (var filePath in allFiles)
+            Parallel.ForEach(allFiles, async (filePath) =>
             {
+
                 var bitmap = SKBitmap.Decode(filePath);
                 var imgPhoto = SKImage.FromBitmap(bitmap);
-                var imgName = Path.GetFileNameWithoutExtension(filePath);
 
                 var sourceWidth = imgPhoto.Width;
                 var sourceHeight = imgPhoto.Height;
@@ -68,14 +68,20 @@ namespace SkImageResizer
                 var destinationWidth = (int)(sourceWidth * scale);
                 var destinationHeight = (int)(sourceHeight * scale);
 
-                using var scaledBitmap = bitmap.Resize(
-                    new SKImageInfo(destinationWidth, destinationHeight),
-                    SKFilterQuality.High);
-                using var scaledImage = SKImage.FromBitmap(scaledBitmap);
-                using var data = scaledImage.Encode(SKEncodedImageFormat.Jpeg, 100);
-                using var s = File.OpenWrite(Path.Combine(destPath, imgName + ".jpg"));
+                var dataTask = Task.Run(() =>
+                {
+                    using var scaledBitmap = bitmap.Resize(
+                        new SKImageInfo(destinationWidth, destinationHeight),
+                        SKFilterQuality.High);
+                    using var scaledImage = SKImage.FromBitmap(scaledBitmap);
+                    return scaledImage.Encode(SKEncodedImageFormat.Jpeg, 100);
+                });
+                var data = await dataTask;
+
+                var imgName = Path.GetFileNameWithoutExtension(filePath);
+                await using var s = File.OpenWrite(Path.Combine(destPath, imgName + ".jpg"));
                 data.SaveTo(s);
-            }
+            });
         }
 
         /// <summary>
@@ -106,10 +112,13 @@ namespace SkImageResizer
         /// <returns></returns>
         public List<string> FindImages(string srcPath)
         {
+            List<string> extensionPatterns = new List<string> { " *.png", "*.jpg", "*.jpeg" };
             List<string> files = new List<string>();
-            files.AddRange(Directory.GetFiles(srcPath, "*.png", SearchOption.AllDirectories));
-            files.AddRange(Directory.GetFiles(srcPath, "*.jpg", SearchOption.AllDirectories));
-            files.AddRange(Directory.GetFiles(srcPath, "*.jpeg", SearchOption.AllDirectories));
+            Parallel.ForEach(extensionPatterns, (extensionPattern) =>
+            {
+                var extensionfiles = Directory.GetFiles(srcPath, extensionPattern, SearchOption.AllDirectories);
+                files.AddRange(extensionfiles);
+            });
             return files;
         }
     }
